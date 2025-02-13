@@ -2,6 +2,7 @@
 
 ## Overview
 The Serial Signal Simulator is a web-based application that allows users to visualize and simulate serial communication signals. It provides interactive controls to modify data values, CRC type, start bit, parity bit, and stop bits, and displays the corresponding signal waveform along with a clock signal using Chart.js.
+![image](https://github.com/user-attachments/assets/7c303c84-ace3-471a-a308-443c23880675)
 
 ## Features
 - **Interactive UI**: Easily adjust serial communication parameters.
