@@ -6,20 +6,7 @@
     <title>Serial Signal Simulator</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 1200px;
-            margin: 20px auto;
-            padding: 0 20px;
-            background-color: #f5f5f5;
-        }
-        
-        .container {
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
+
 
         h2 {
             color: #2c3e50;
@@ -71,24 +58,6 @@
             background-color: #2980b9;
         }
 
-        .charts-container {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-
-        .chart-wrapper {
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        canvas {
-            width: 100% !important;
-            height: 200px !important;
-            margin: auto;
-        }
 
         .legend {
             display: flex;
@@ -111,6 +80,48 @@
             height: 20px;
             border-radius: 4px;
         }
+		
+	body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 0 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .charts-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .chart-wrapper {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 400px !important;
+            margin: auto;
+        }
+		
+		 .crc-info {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #666;
+        }
+		
+		
     </style>
 </head>
 <body>
@@ -118,27 +129,57 @@
         <h2>Serial Signal Simulator</h2>
         
         <div class="controls">
+		
+			<div class="control-group">
+                <label for="baudRate">Baud Rate:</label>
+                <select id="baudRate" onchange="simulateSignal()">
+                    <option value="1200">1200</option>
+                    <option value="2400">2400</option>
+                    <option value="4800">4800</option>
+                    <option value="9600" selected>9600</option>
+                    <option value="19200">19200</option>
+                    <option value="38400">38400</option>
+                    <option value="57600">57600</option>
+                    <option value="115200">115200</option>
+                </select>
+            </div>
+		
+		
             <div class="control-group">
                 <label for="dataBits">Data (8 bits):</label>
-                <input type="text" id="dataBits" value="00110001" pattern="[01]{8}" maxlength="8">
+                <input type="text" id="dataBits" value="00110001" pattern="[01]{8}" maxlength="8" oninput="updateCRC()">
             </div>
             <div class="control-group">
-                <label for="crcBits">CRC (8 bits):</label>
-                <input type="text" id="crcBits" value="10110011" pattern="[01]{8}" maxlength="8">
+                <label for="crcType">CRC Type:</label>
+                <select id="crcType" onchange="updateCRC()">
+					<option value="None">None</option>
+                    <option value="CRC-8">CRC-8 (0x07)</option>
+                    <option value="CRC-8-MAXIM">CRC-8 MAXIM (0x31)</option>
+                    <option value="CRC-16">CRC-16 (0x8005)</option>
+                    <option value="CRC-16-CCITT">CRC-16-CCITT (0x1021)</option>
+                </select>
+                <div class="crc-info" id="crcInfo"></div>
             </div>
             <div class="control-group">
+                <label for="crcBits">CRC Result:</label>
+                <input type="text" id="crcBits" readonly>
+            </div>
+			
+			 <div class="control-group">
                 <label for="startBit">Start Bit:</label>
                 <select id="startBit">
                     <option value="0" selected>0</option>
                 </select>
             </div>
-            <div class="control-group">
-                <label for="parityBit">Parity Bit:</label>
-                <select id="parityBit">
-                    <option value="0">0</option>
-                    <option value="1" selected>1</option>
-                </select>
-            </div>
+			
+			<div class="control-group">
+				<label for="parityType">Parity Type:</label>
+				<select id="parityType">
+					<option value="none" selected>None</option>
+					<option value="even">Even</option>
+					<option value="odd">Odd</option>
+				</select>
+			</div>
             <div class="control-group">
                 <label for="stopBit">Stop Bits:</label>
                 <select id="stopBit">
@@ -158,8 +199,12 @@
             <div class="chart-wrapper">
                 <canvas id="signalChart"></canvas>
             </div>
+            <div class="chart-wrapper">
+                <canvas id="combinedChart"></canvas>
+            </div>
         </div>
-
+		
+		
         <div class="legend">
             <div class="legend-item">
                 <div class="legend-color" style="background-color: #c0c0c0"></div>
@@ -186,57 +231,139 @@
                 <span>Stop</span>
             </div>
         </div>
+		
+		
     </div>
 
     <script>
         let clockChart = null;
         let signalChart = null;
+		let combinedChart = null;
+		
+		const CRC_CONFIGS = {
+			'None' : {},
+            'CRC-8': { width: 8, poly: 0x07, init: 0x00, refin: false, refout: false, xorout: 0x00 },
+            'CRC-8-MAXIM': { width: 8, poly: 0x31, init: 0x00, refin: true, refout: true, xorout: 0x00 },
+            'CRC-16': { width: 16, poly: 0x8005, init: 0x0000, refin: true, refout: true, xorout: 0x0000 },
+            'CRC-16-CCITT': { width: 16, poly: 0x1021, init: 0xFFFF, refin: false, refout: false, xorout: 0x0000 }
+        };
 
-        function generateBitSegments(bits, type, startTime, samplesPerBit) {
-            return Array(samplesPerBit).fill().map((_, i) => ({
-                x: startTime + i / samplesPerBit,
-                y: bits,
-                type: type
-            }));
+        function reverseBits(num, width) {
+            let reversed = 0;
+            for (let i = 0; i < width; i++) {
+                reversed = (reversed << 1) | (num & 1);
+                num = num >> 1;
+            }
+            return reversed;
         }
 
+        function calculateCRC(data, config) {
+			if (!config.width) {  // Check if config has no width (None case)
+				return '';  // Return empty string instead of a number
+			}
+			
+			let crc = config.init;
+			const msb = 1 << (config.width - 1);
+			const width_mask = (msb - 1) | msb;
+			
+			// Rest of the calculation remains the same
+			const dataBytes = [];
+			for (let i = 0; i < data.length; i += 8) {
+				dataBytes.push(parseInt(data.slice(i, i + 8), 2));
+			}
+
+			for (let b of dataBytes) {
+				if (config.refin) {
+					b = reverseBits(b, 8);
+				}
+				
+				crc = crc ^ (b << (config.width - 8));
+				
+				for (let i = 0; i < 8; i++) {
+					if (crc & msb) {
+						crc = (crc << 1) ^ config.poly;
+					} else {
+						crc = crc << 1;
+					}
+					crc = crc & width_mask;
+				}
+			}
+
+			if (config.refout) {
+				crc = reverseBits(crc, config.width);
+			}
+			
+			crc = crc ^ config.xorout;
+			return crc & width_mask;
+		}
+
+        function updateCRC() {
+			const dataBits = document.getElementById('dataBits').value;
+			const crcType = document.getElementById('crcType').value;
+			const config = CRC_CONFIGS[crcType];
+			
+			// Validate input
+			if (!/^[01]+$/.test(dataBits)) {
+				document.getElementById('crcInfo').textContent = 'Please enter valid binary data';
+				return;
+			}
+
+			// Clear CRC info and result if None is selected
+			if (crcType === 'None') {
+				document.getElementById('crcBits').value = '';
+				document.getElementById('crcInfo').textContent = '';
+				simulateSignal();
+				return;
+			}
+
+			// Calculate CRC
+			const crcValue = calculateCRC(dataBits, config);
+			
+			// Convert to binary string with proper width
+			let crcBinary = crcValue.toString(2).padStart(config.width, '0');
+			
+			// Update UI
+			document.getElementById('crcBits').value = crcBinary;
+			document.getElementById('crcInfo').textContent = `CRC Value: 0x${crcValue.toString(16).toUpperCase().padStart(config.width/4, '0')}`;
+			
+			// Update the signal visualization
+			simulateSignal();
+		}
+
+        // Modified simulateSignal function to handle variable CRC width
         function expandBitsToSignal() {
             const samplesPerBit = 20;
             const idleBits = [1];
             const startBit = [parseInt(document.getElementById("startBit").value)];
             const dataBits = document.getElementById("dataBits").value.split('').map(Number);
-            const parityBit = [parseInt(document.getElementById("parityBit").value)];
+            const parityType = document.getElementById("parityType").value;
+            const parityBit = calculateParity(dataBits, parityType);
             const crcBits = document.getElementById("crcBits").value.split('').map(Number);
             const stopBits = Array(parseInt(document.getElementById("stopBit").value)).fill(1);
 
             let points = [];
             let currentTime = 0;
 
-            // Add idle state
+            // Previous signal generation code remains the same
             points.push(...generateBitSegments(1, 'idle', currentTime++, samplesPerBit));
-
-            // Add start bit
             points.push(...generateBitSegments(startBit[0], 'start', currentTime++, samplesPerBit));
-
-            // Add data bits
+            
             dataBits.forEach(bit => {
                 points.push(...generateBitSegments(bit, 'data', currentTime++, samplesPerBit));
             });
 
-            // Add parity bit
-            points.push(...generateBitSegments(parityBit[0], 'parity', currentTime++, samplesPerBit));
+            if (parityBit !== null) {
+                points.push(...generateBitSegments(parityBit, 'parity', currentTime++, samplesPerBit));
+            }
 
-            // Add CRC bits
             crcBits.forEach(bit => {
                 points.push(...generateBitSegments(bit, 'crc', currentTime++, samplesPerBit));
             });
 
-            // Add stop bits
             stopBits.forEach(bit => {
                 points.push(...generateBitSegments(bit, 'stop', currentTime++, samplesPerBit));
             });
 
-            // Generate clock signal
             const clockPoints = points.map(p => ({
                 x: p.x,
                 y: Math.floor(p.x * 2) % 2
@@ -245,74 +372,224 @@
             return { points, clockPoints };
         }
 
+        function generateBitSegments(bits, type, startTime, samplesPerBit) {
+            return Array(samplesPerBit).fill().map((_, i) => ({
+                x: startTime + i / samplesPerBit,
+                y: bits,
+                type: type
+            }));
+        }
+		
+		
+		function calculateParity(dataBits, parityType) {
+			let countOnes = dataBits.reduce((sum, bit) => sum + bit, 0);
+			
+			if (parityType === "even") {
+				return countOnes % 2 === 0 ? 0 : 1;  // Ensure even number of 1s
+			} else if (parityType === "odd") {
+				return countOnes % 2 === 0 ? 1 : 0;  // Ensure odd number of 1s
+			}
+			return null;  // No parity (None)
+		}
+
+       function expandBitsToSignal() {
+			const samplesPerBit = 20;
+			const idleBits = [1];
+			const startBit = [parseInt(document.getElementById("startBit").value)];
+			const dataBits = document.getElementById("dataBits").value.split('').map(Number);
+			const parityType = document.getElementById("parityType").value;
+			
+			// Calculate parity dynamically
+			const parityBit = calculateParity(dataBits, parityType);
+			
+			const crcBits = document.getElementById("crcBits").value.split('').map(Number);
+			const stopBits = Array(parseInt(document.getElementById("stopBit").value)).fill(1);
+
+			let points = [];
+			let currentTime = 0;
+
+			// Add idle state
+			points.push(...generateBitSegments(1, 'idle', currentTime++, samplesPerBit));
+
+			// Add start bit
+			points.push(...generateBitSegments(startBit[0], 'start', currentTime++, samplesPerBit));
+
+			// Add data bits
+			dataBits.forEach(bit => {
+				points.push(...generateBitSegments(bit, 'data', currentTime++, samplesPerBit));
+			});
+
+			// Add parity bit if required
+			if (parityBit !== null) {
+				points.push(...generateBitSegments(parityBit, 'parity', currentTime++, samplesPerBit));
+			}
+
+			// Add CRC bits
+			crcBits.forEach(bit => {
+				points.push(...generateBitSegments(bit, 'crc', currentTime++, samplesPerBit));
+			});
+
+			// Add stop bits
+			stopBits.forEach(bit => {
+				points.push(...generateBitSegments(bit, 'stop', currentTime++, samplesPerBit));
+			});
+
+			// Generate clock signal
+			const clockPoints = points.map(p => ({
+				x: p.x,
+				y: Math.floor(p.x * 2) % 2
+			}));
+
+			return { points, clockPoints };
+		}
+
         function simulateSignal() {
-            const { points, clockPoints } = expandBitsToSignal();
+			const baudRate = parseInt(document.getElementById("baudRate").value);
+			const bitDurationMs = 1000 / baudRate; // Convert bit duration to milliseconds
 
-            const colors = {
-                idle: '#c0c0c0',
-                start: '#ff6b6b',
-                data: '#4ecdc4',
-                parity: '#45b7d1',
-                crc: '#96ceb4',
-                stop: '#6c5ce7'
-            };
+			const { points, clockPoints } = expandBitsToSignal();
 
-            // Destroy existing charts
-            if (clockChart) clockChart.destroy();
-            if (signalChart) signalChart.destroy();
+			const colors = {
+				idle: '#c0c0c0',
+				start: '#ff6b6b',
+				data: '#4ecdc4',
+				parity: '#45b7d1',
+				crc: '#96ceb4',
+				stop: '#6c5ce7'
+			};
 
-            // Create clock chart
-            clockChart = new Chart(document.getElementById('clockChart').getContext('2d'), {
+			// Destroy existing charts
+			if (clockChart) clockChart.destroy();
+			if (signalChart) signalChart.destroy();
+			if (combinedChart) combinedChart.destroy();
+
+			// Create clock chart
+			clockChart = new Chart(document.getElementById('clockChart').getContext('2d'), {
+				type: 'line',
+				data: {
+					datasets: [{
+						label: 'Clock Signal',
+						data: clockPoints,
+						borderColor: '#e74c3c',
+						borderWidth: 2,
+						fill: false,
+						stepped: 'before'
+					}]
+				},
+				options: {
+					responsive: true,
+					maintainAspectRatio: false,
+					animation: false,
+					scales: {
+						x: {
+							type: 'linear',
+							title: { display: true, text: 'Bit Periods' },
+							position: 'bottom',
+						},
+						x1: {
+							type: 'linear',
+							title: { display: true, text: 'Time (ms)' },
+							position: 'top',
+							grid: { drawOnChartArea: false }, // Prevent overlapping
+							ticks: {
+								callback: function (value) {
+									return (value * bitDurationMs).toFixed(3); // Convert bit periods to ms
+								}
+							}
+						},
+						y: {
+							min: -0.5,
+							max: 1.5,
+							title: { display: true, text: 'Clock Level' }
+						}
+					},
+					plugins: {
+						title: {
+							display: true,
+							text: 'Clock Signal'
+						}
+					}
+				}
+			});
+
+			// Create signal chart
+			signalChart = new Chart(document.getElementById('signalChart').getContext('2d'), {
+				type: 'line',
+				data: {
+					datasets: Object.keys(colors).map(type => ({
+						label: type.charAt(0).toUpperCase() + type.slice(1),
+						data: points.filter(p => p.type === type),
+						borderColor: colors[type],
+						borderWidth: 2,
+						fill: false,
+						stepped: 'before',
+						segment: {
+							borderColor: ctx => colors[type]
+						}
+					}))
+				},
+				options: {
+					responsive: true,
+					maintainAspectRatio: false,
+					animation: false,
+					scales: {
+						x: {
+							type: 'linear',
+							title: { display: true, text: 'Bit Periods' },
+							position: 'bottom',
+						},
+						x1: {
+							type: 'linear',
+							title: { display: true, text: 'Time (ms)' },
+							position: 'top',
+							grid: { drawOnChartArea: false }, // Avoid grid overlap
+							ticks: {
+								callback: function (value) {
+									return (value * bitDurationMs).toFixed(3); // Convert to ms
+								}
+							}
+						},
+						y: {
+							min: -0.5,
+							max: 1.5,
+							title: { display: true, text: 'Signal Level' }
+						}
+					},
+					plugins: {
+						title: {
+							display: true,
+							text: 'Serial Signal'
+						}
+					}
+				}
+			});
+			
+			// Create combined chart
+            combinedChart = new Chart(document.getElementById('combinedChart').getContext('2d'), {
                 type: 'line',
                 data: {
-                    datasets: [{
-                        label: 'Clock Signal',
-                        data: clockPoints,
-                        borderColor: '#e74c3c',
-                        borderWidth: 2,
-                        fill: false,
-                        stepped: 'before'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: false,
-                    scales: {
-                        x: {
-                            type: 'linear',
-                            title: { display: true, text: 'Bit Periods' }
+                    datasets: [
+                        {
+                            label: 'Clock Signal',
+                            data: clockPoints,
+                            borderColor: 'rgba(231, 76, 60, 0.5)', // Semi-transparent red
+                            borderWidth: 2,
+                            fill: false,
+                            stepped: 'before',
+                            pointRadius: 0 // Remove points
                         },
-                        y: {
-                            min: -0.5,
-                            max: 1.5,
-                            title: { display: true, text: 'Clock Level' }
-                        }
-                    },
-                    plugins: {
-                        title: {
-                            display: true,
-                            text: 'Clock Signal'
-                        }
-                    }
-                }
-            });
-
-            // Create signal chart
-            signalChart = new Chart(document.getElementById('signalChart').getContext('2d'), {
-                type: 'line',
-                data: {
-                    datasets: Object.keys(colors).map(type => ({
-                        label: type.charAt(0).toUpperCase() + type.slice(1),
-                        data: points.filter(p => p.type === type),
-                        borderColor: colors[type],
-                        borderWidth: 2,
-                        fill: false,
-                        stepped: 'before',
-                        segment: {
-                            borderColor: ctx => colors[type]
-                        }
-                    }))
+                        ...Object.keys(colors).map(type => ({
+                            label: type.charAt(0).toUpperCase() + type.slice(1),
+                            data: points.filter(p => p.type === type),
+                            borderColor: colors[type],
+                            borderWidth: 2,
+                            fill: false,
+                            stepped: 'before',
+                            segment: {
+                                borderColor: ctx => colors[type]
+                            }
+                        }))
+                    ]
                 },
                 options: {
                     responsive: true,
@@ -321,7 +598,19 @@
                     scales: {
                         x: {
                             type: 'linear',
-                            title: { display: true, text: 'Bit Periods' }
+                            title: { display: true, text: 'Bit Periods' },
+                            position: 'bottom',
+                        },
+                        x1: {
+                            type: 'linear',
+                            title: { display: true, text: 'Time (ms)' },
+                            position: 'top',
+                            grid: { drawOnChartArea: false },
+                            ticks: {
+                                callback: function (value) {
+                                    return (value * bitDurationMs).toFixed(3);
+                                }
+                            }
                         },
                         y: {
                             min: -0.5,
@@ -332,15 +621,23 @@
                     plugins: {
                         title: {
                             display: true,
-                            text: 'Serial Signal'
+                            text: 'Combined Signals'
                         }
                     }
                 }
             });
-        }
+			
+			
+		}
+
+
+		
+		// Initial signal generation
+		simulateSignal();
+
 
         // Initial signal generation
         simulateSignal();
     </script>
 </body>
-</html>
+</html>"
