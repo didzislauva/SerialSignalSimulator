@@ -49,6 +49,9 @@ A signal waveform displaying each bit with corresponding time intervals and cloc
 - Implement additional parity checking mechanisms.
 - Save and export generated signals as images.
 
+## Available online
+https://didzislauva.github.io/SerialSignalSimulator/
+
 ## License
 This project is open-source and available for modification and redistribution under the MIT License.
 
